@@ -17,14 +17,14 @@ func main() {
 
 	es := eventsource.New(nil)
 	defer es.Close()
-	http.Handle("/log/", es)
-	http.HandleFunc("/", index)
+	http.Handle("/pcap/", es)
+	http.Handle("/", http.FileServer(http.Dir("./pub")))
 
 	if *device == "" {
 		printDevices()
 	} else {
 		go openDevice(device, es)
-    log.Println("Opening server at localhost:8080 and listening for ", *device)
+		log.Println("Opening server at localhost:8080 and listening for ", *device)
 		log.Fatal(http.ListenAndServe(":8080", nil))
 	}
 
@@ -42,27 +42,36 @@ func openDevice(device *string, es eventsource.EventSource) {
 		fmt.Printf("Failed to open %s : %s\n", *device, err)
 	} else {
 
-    h.Setfilter("port != 8080")
+		// TODO this needs to be dynmically set
+		h.SetFilter("port != 8080")
 		for pkt := h.Next(); ; pkt = h.Next() {
 			if pkt != nil {
 				pkt.Decode()
-        es.SendMessage(pkt.String(),"","")
-				// TODO get the tcp data and port
-				// if len(pkt.Headers) >= 2 {
-					// if addr, ok := pkt.Headers[0].(addrHdr); ok {
-						// es.SendMessage(addr.DestAddr()+" < "+addr.SrcAddr(), "", "")
-					// }
-				// }
+        m, ok := prepare(pkt)
+        if ok {
+          es.SendMessage(m, "", "")
+        }
 			}
 		}
 
 		log.Println("timeout")
 	}
+}
 
+func prepare(pkt *pcap.Packet) (string, bool) {
+	if len(pkt.Headers) >= 2 {
+		if t, ok := pkt.Headers[1].(*pcap.Tcphdr); ok {
+			if addr, ok := pkt.Headers[0].(addrHdr); ok {
+        log.Printf("ok")
+				return fmt.Sprintf("%s:%d %s:%d", addr.SrcAddr(), int(t.SrcPort), addr.DestAddr(), int(t.DestPort)), true
+			}
+		}
+	}
+	return "", false
 }
 
 func printDevices() {
-	devs, err := pcap.Findalldevs()
+	devs, err := pcap.FindAllDevs()
 
 	if len(devs) == 0 {
 		fmt.Printf("Error: no devices found. %s\n", err)
@@ -72,73 +81,4 @@ func printDevices() {
 			fmt.Printf("  %s \n", dev.Name)
 		}
 	}
-}
-
-func index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, template())
-}
-
-func template() string {
-	return `
-  <!DOCTYPE html>
-
-  <html>
-  <head>
-  <title>ESTail</title>
-  <link href='http://fonts.googleapis.com/css?family=Droid+Sans+Mono' rel='stylesheet' type='text/css'>
-  <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/1.9.0/jquery.min.js"></script>
-  <style type="text/css">
-  body {
-    margin: 20px;
-    font: 12px/18px 'Droid Sans Mono', san-serif;
-    color: #CCCCAA;
-    background: #222;
-  }
-
-  hr {
-    border:0;
-    height: 1px;
-    line-height: 1px;
-    border-top: 1px #590 solid;
-    margin: 9px 0 10px;
-  }
-
-  </style>
-  </head>
-
-  <body>
-  <h4>ESTail</h4>
-  <div id="log"></div>
-
-  <script>
-  (function(){
-
-    // clean up some shell color codes
-    function parse(s){
-      return s.replace(/\[\d{1,}m/img,"")
-    }
-
-    function listen(channel, target){
-      var source = new EventSource('/log/');
-      var addMark = false;
-
-      setInterval(function(){
-        if(addMark){ target.append($("<hr/>")); addMark = false}
-      },3000)
-
-      source.onmessage = function(e){
-        addMark = true;
-        var d = $("<div/>")
-        target.append(d.text(parse(e.data)))
-        $(document).scrollTop($(document).height())
-      }
-    }
-
-    listen("log", $("#log"))
-  })()
-  </script>
-  </body>
-
-  </html>
-  `
 }
