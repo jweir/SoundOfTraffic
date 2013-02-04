@@ -55,8 +55,7 @@
   }
 
   function listen(){
-    var source = new EventSource('/pcap/');
-    var addMark = false;
+    var source = new EventSource('/pcap/tcp/');
     var sot = new SOT();
 
     source.onmessage = function(e){
