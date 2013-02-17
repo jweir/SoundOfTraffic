@@ -1,4 +1,29 @@
 (function(){
+  var sot = angular.module("SoundOfTraffic",[]);
+
+
+  sot.directive('navbar', function(){
+    return {
+      restrict: 'E',
+      controller: function($scope, $http){
+        $scope.sources = []
+
+        $scope.toggle = function(s){
+          return s.enabled ? s.start() : s.stop();
+        }
+
+        $http.get("/sources").success(function(d){
+          angular.forEach(d, function(u,s){
+            $scope.sources.push(new SOT(s,u))
+          })
+        })
+      }
+    }
+  })
+
+})();
+
+(function(){
 
   // Splits a string of address info into an object
   function split(addr){
@@ -12,11 +37,33 @@
     }
   }
 
-  function SOT(){
+  function SOT(name, url){
+    this.name = name;
+    this.url = url;
+    this.enabled = false;
     this.sink = [];
     this.instMap = {};
     this.instCounter = 21;
-    debugger
+    this.timer = null;
+  }
+
+  SOT.prototype.start = function(){
+    console.log("starting", this.name)
+    this.source = new EventSource(this.url)
+
+    var self = this;
+    this.source.onmessage = function(e){
+      self.recv(e.data)
+    }
+    this.timer = setInterval(function(){self.drain()}, 100)
+  }
+
+  SOT.prototype.stop = function(){
+    console.log("stopping", this.name)
+    clearInterval(this.timer)
+    this.drain();
+    this.source.close();
+    delete this.source;
   }
 
   SOT.prototype.recv = function recv(message){
@@ -54,23 +101,7 @@
     return map;
   }
 
-  function listen(){
-    var source = new EventSource('/pcap/tcp/');
-    var sot = new SOT();
-
-    source.onmessage = function(e){
-      sot.recv(e.data)
-    }
-
-    return sot;
-  }
-
-  function start(){
-    var sot = listen();
-    setInterval(function(){sot.drain()}, 100)
-  }
-
-  $(listen);
+  window.SOT = SOT;
 
   function loadMidi(){
     MIDI.loadPlugin({
@@ -80,10 +111,9 @@
         MIDI.setVolume(0,127);
         MIDI.noteOn(0,50,127, 0)
         MIDI.noteOff(0,50,1)
-        start()
       }
     })
   }
 
   $(loadMidi);
-}())
+})();
