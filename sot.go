@@ -24,32 +24,44 @@ type Source struct {
 	url   string
 }
 
+// Maps the type (TCP, UDP, ARP, etc) to an event source
 type SourceList map[string]Source
 
 func main() {
-	device := flag.String("d", "", "network device")
+	device := flag.String("i", "", "network device")
+	port := flag.String("p", "8000", "http server port (default 8000)")
+
 	flag.Parse()
 
-	// Maps the type (TCP, UDP, ARP, etc) to an event source
 	sources := make(SourceList)
 
 	defer sources.add("tcp").Close()
 	defer sources.add("udp").Close()
 
-	// TOOD "/protocol" which describes a function to
-	// break the stream into sonic data
-
 	http.Handle("/sources", sources)
 	http.Handle("/", http.FileServer(http.Dir("./pub")))
 
 	if *device == "" {
+		flag.PrintDefaults()
 		printDevices()
 	} else {
-		go openDevice(device, sources)
-		log.Println("Opening server at localhost:8080 and listening for ", *device)
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		go openDevice(device, port, sources)
+		log.Printf("Opening server at localhost:%s and listening for %s\n", *port, *device)
+		log.Fatal(http.ListenAndServe(":"+*port, nil))
 	}
+}
 
+// Prints a list of available network devices to console
+func printDevices() {
+	devs, err := pcap.FindAllDevs()
+	if len(devs) == 0 {
+		fmt.Printf("Error: no network devices found. %s\n", err)
+	} else {
+		fmt.Println("Available network devices")
+		for _, dev := range devs {
+			fmt.Printf("  %s \n", dev.Name)
+		}
+	}
 }
 
 // binds an event source to a packet type (ie TCP)
@@ -80,14 +92,13 @@ func (c SourceList) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s", m)
 }
 
-func openDevice(device *string, sources SourceList) {
+func openDevice(device *string, port *string, sources SourceList) {
 	h, err := pcap.OpenLive(*device, 65535, true, 100)
 	if h == nil {
 		fmt.Printf("Failed to open %s : %s\n", *device, err)
 	} else {
 
-		// TODO set the port via an arg
-		h.SetFilter("port != 8080")
+		h.SetFilter("not port " + *port)
 		for pkt := h.Next(); ; pkt = h.Next() {
 			if pkt != nil {
 				pkt.Decode()
@@ -105,7 +116,7 @@ func (s SourceList) send(pkt *pcap.Packet) {
 		if addr, ok := pkt.Headers[0].(addrHdr); ok {
 			switch k := pkt.Headers[1].(type) {
 			case *pcap.Tcphdr:
-				log.Printf("tcp")
+				log.Printf("tcp %d", int(k.SrcPort))
 				m := fmt.Sprintf("%s:%d %s:%d", addr.SrcAddr(), int(k.SrcPort), addr.DestAddr(), int(k.DestPort))
 				s["tcp"].es.SendMessage(m, "", "")
 			case *pcap.Udphdr:
@@ -115,19 +126,6 @@ func (s SourceList) send(pkt *pcap.Packet) {
 			default:
 				log.Printf("%T", k)
 			}
-		}
-	}
-}
-
-func printDevices() {
-	devs, err := pcap.FindAllDevs()
-
-	if len(devs) == 0 {
-		fmt.Printf("Error: no devices found. %s\n", err)
-	} else {
-		fmt.Println("Available network devices")
-		for _, dev := range devs {
-			fmt.Printf("  %s \n", dev.Name)
 		}
 	}
 }
