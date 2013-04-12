@@ -39,23 +39,13 @@ func printDevices() {
 	}
 }
 
-type Source struct {
-	es    es.EventSource
-	label string
-	url   string
-}
-
-// Maps the type (TCP, UDP, ARP, etc) to an event source
-type SourceMap map[string]Source
-
 func startServer(device *string, port *string) {
 	sm := make(SourceMap)
 
-	defer sm.Add("tcp").Close()
-	defer sm.Add("udp").Close()
-
-	http.Handle(sm["tcp"].url, sm["tcp"].es)
-	http.Handle(sm["udp"].url, sm["udp"].es)
+	for _, t := range []string{"tcp", "udp"} {
+		defer sm.Add(t).Close()
+		http.Handle(sm[t].url, sm[t].es)
+	}
 
 	http.Handle("/sources", sm)
 	http.Handle("/", http.FileServer(http.Dir("./pub")))
@@ -64,6 +54,15 @@ func startServer(device *string, port *string) {
 	log.Printf("Opening server at localhost:%s and listening for %s\n", *port, *device)
 	log.Fatal(http.ListenAndServe(":"+*port, nil))
 }
+
+type Source struct {
+	es    es.EventSource
+	label string
+	url   string
+}
+
+// Maps the type (TCP, UDP, ARP, etc) to an event source
+type SourceMap map[string]Source
 
 // binds an event source to a packet type (ie TCP)
 // creates an http handler to allow subscription to the packet type
@@ -118,19 +117,22 @@ func (s SourceMap) process(pkt *pcap.Packet) {
 	pkt.Decode()
 
 	if len(pkt.Headers) >= 2 {
-
 		if addr, ok := pkt.Headers[0].(addrHdr); ok {
-			switch k := pkt.Headers[1].(type) {
-			case *pcap.Tcphdr:
-				f := &ports{k.SrcPort, k.DestPort}
-				s["tcp"].send(&addr, f)
-			case *pcap.Udphdr:
-				f := &ports{k.SrcPort, k.DestPort}
-				s["udp"].send(&addr, f)
-			default:
-				log.Printf("%T", k)
-			}
+			s.route(pkt, &addr)
 		}
+	}
+}
+
+func (s SourceMap) route(pkt *pcap.Packet, addr *addrHdr) {
+	switch k := pkt.Headers[1].(type) {
+	case *pcap.Tcphdr:
+		f := &ports{k.SrcPort, k.DestPort}
+		s["tcp"].send(addr, f)
+	case *pcap.Udphdr:
+		f := &ports{k.SrcPort, k.DestPort}
+		s["udp"].send(addr, f)
+	default:
+		log.Printf("%T", k)
 	}
 }
 
