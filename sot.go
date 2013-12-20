@@ -8,6 +8,7 @@ import (
 	"fmt"
 	es "github.com/antage/eventsource/http"
 	pcap "github.com/miekg/pcap"
+  // "github.com/jweir/SoundOfTraffic/hosts"
 	"log"
 	"net/http"
 )
@@ -144,5 +145,12 @@ func (s Source) send(addr *addrHdr, port *ports) {
 // Create the string representing the packet
 // this is what gets sent to the browser
 func msg(addr addrHdr, k *ports) string {
-	return fmt.Sprintf("%s:%d %s:%d", addr.SrcAddr(), int(k.SrcPort), addr.DestAddr(), int(k.DestPort))
+  // srcHost  := hosts.Lookup(addr.SrcAddr())
+  // destHost := hosts.Lookup(addr.DestAddr())
+  srcIP    := addr.SrcAddr()
+  destIP   := addr.DestAddr()
+  srcPort  := k.SrcPort
+  destPort := k.DestPort
+  
+	return fmt.Sprintf("%s:%d > %s:%d", srcIP, srcPort, destIP, destPort)
 }
