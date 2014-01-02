@@ -1,0 +1,12 @@
+{
+    "name": "SoundofTrafficTests"
+  , "version": "0.0.1"
+  , "private": true
+  , "dependencies": {
+      "karma": "> 0",
+      "karma-mocha" :  "> 0.0",
+      "chai" : "> 0.0"
+  }
+  , "devDependencies" : {
+  }
+}
