@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	es "github.com/antage/eventsource/http"
-	pcap "github.com/miekg/pcap"
 	"log"
 	"net/http"
+
+	es "github.com/antage/eventsource"
+	pcap "github.com/miekg/pcap"
 )
 
 func main() {
@@ -55,31 +56,32 @@ func startServer(device *string, port *string) {
 	log.Fatal(http.ListenAndServe(":"+*port, nil))
 }
 
+// Source is is
 type Source struct {
 	es    es.EventSource
 	label string
 	url   string
 }
 
-// Maps the type (TCP, UDP, ARP, etc) to an event source
+// SourceMap Maps the type (TCP, UDP, ARP, etc) to an event source
 type SourceMap map[string]Source
 
-// binds an event source to a packet type (ie TCP)
+// Add binds an event source to a packet type (ie TCP)
 // creates an http handler to allow subscription to the packet type
 func (sm SourceMap) Add(label string) es.EventSource {
 	c := Source{
-		es:    es.New(nil),
+		es:    es.New(nil, nil),
 		label: label,
 		url:   "/pcap/" + label + "/"}
 	sm[label] = c
 	return c.es
 }
 
-// display the available sources as json
-func (s SourceMap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP display the available sources as json
+func (sm SourceMap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	o := make(map[string]string)
-	for k, _ := range s {
-		o[k] = s[k].url
+	for k := range sm {
+		o[k] = sm[k].url
 	}
 	m, _ := json.Marshal(o)
 	fmt.Fprintf(w, "%s", m)
@@ -113,24 +115,24 @@ type addrHdr interface {
 	Len() int
 }
 
-func (s SourceMap) process(pkt *pcap.Packet) {
+func (sm SourceMap) process(pkt *pcap.Packet) {
 	pkt.Decode()
 
 	if len(pkt.Headers) >= 2 {
 		if addr, ok := pkt.Headers[0].(addrHdr); ok {
-			s.route(pkt, &addr)
+			sm.route(pkt, &addr)
 		}
 	}
 }
 
-func (s SourceMap) route(pkt *pcap.Packet, addr *addrHdr) {
+func (sm SourceMap) route(pkt *pcap.Packet, addr *addrHdr) {
 	switch k := pkt.Headers[1].(type) {
 	case *pcap.Tcphdr:
 		f := &ports{k.SrcPort, k.DestPort}
-		s["tcp"].send(addr, f)
+		sm["tcp"].send(addr, f)
 	case *pcap.Udphdr:
 		f := &ports{k.SrcPort, k.DestPort}
-		s["udp"].send(addr, f)
+		sm["udp"].send(addr, f)
 	default:
 		log.Printf("%T", k)
 	}
@@ -138,7 +140,7 @@ func (s SourceMap) route(pkt *pcap.Packet, addr *addrHdr) {
 
 func (s Source) send(addr *addrHdr, port *ports) {
 	m := msg(*addr, port)
-	s.es.SendMessage(m, "", "")
+	s.es.SendEventMessage(m, "", "")
 }
 
 // Create the string representing the packet
